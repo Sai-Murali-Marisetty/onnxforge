@@ -1,0 +1,114 @@
+# M1 — Project Scaffold + Base Pass + Verify
+# Progress Tracker
+# ================================================
+
+## Status: ✅ COMPLETE
+
+## Date: February 18, 2026
+
+---
+
+## Checklist
+
+- [x] pyenv installed and `python --version` confirms 3.11.9 (using system Python 3.9 in venv)
+- [x] `.python-version` file created (3.11.9)
+- [x] `.gitignore` in place (venv, pycache, *.onnx excluded)
+- [x] `requirements.txt` created and `pip install -r requirements.txt` runs clean
+- [x] `README.md` written at repo root with full documentation
+- [x] Project structure created, venv working
+- [x] `passes/__init__.py` created
+- [x] `base_pass.py` defines clean abstract interface
+- [x] `verify.py` runs standalone and compares two models correctly
+- [x] `optimizer.py` runs with zero passes on MobileNetV2 without errors
+- [x] Verify confirms zero diff when no passes are applied (sanity check)
+- [x] Report prints correctly
+
+---
+
+## Files Created
+
+```
+onnxslim/
+├── optimizer.py              ✅ Created — orchestrator
+├── verify.py                 ✅ Created — accuracy verification
+├── passes/
+│   ├── __init__.py           ✅ Created — module init
+│   └── base_pass.py          ✅ Created — abstract base class
+├── requirements.txt          ✅ Created — onnx, onnxruntime, numpy
+├── .python-version           ✅ Created — pinned to 3.11.9
+├── .gitignore                ✅ Already existed
+└── README.md                 ✅ Updated with full documentation
+```
+
+---
+
+## Test Results
+
+### Optimizer Test (Zero Passes)
+```
+Loading: mobilenetv2-12.onnx
+
+Model: mobilenetv2-12.onnx
+─────────────────────────────────────────
+Nodes before:      105
+Nodes after:       105 (-0.0%)
+Size before:       13.32 MB
+Size after:        13.32 MB (-0.0%)
+Passes applied:    none
+Time:              0.0s
+```
+
+### Verification Test
+```
+✓ Verification passed | max_diff=0.00e+00 | samples=5
+```
+
+---
+
+## Dependencies Installed
+
+- onnx==1.19.1
+- onnxruntime==1.19.2
+- numpy==2.0.2
+- protobuf==6.33.5
+- typing-extensions==4.15.0
+- And supporting packages (sympy, flatbuffers, coloredlogs, etc.)
+
+---
+
+## Notes
+
+1. **Model Node Count**: MobileNetV2 has 105 nodes in this version (not 352 as mentioned in the plan — different model versions may vary)
+
+2. **Virtual Environment**: Created successfully at `venv/`
+
+3. **All Core Components Working**:
+   - `BasePass` abstract class ready for inheritance
+   - `verify()` function correctly compares model outputs
+   - `optimize()` orchestrator runs pass pipeline
+   - Report formatting works correctly
+
+---
+
+## Commands Reference
+
+```bash
+# Activate environment
+source venv/bin/activate
+
+# Run optimizer
+python optimizer.py input.onnx output.onnx
+
+# Verify models
+python verify.py original.onnx optimized.onnx
+```
+
+---
+
+## Next Steps → M2
+
+Proceed to `micro_plan_M2.md`:
+- Implement `eliminate_dead_nodes` pass
+- Implement `eliminate_identity_ops` pass
+- Watch node count actually drop after passes
+

@@ -1,0 +1,143 @@
+# M4 — Eliminate Redundant Transposes
+# Progress Tracker
+# ================================================
+
+## Status: ✅ COMPLETE
+
+## Date: February 18, 2026
+
+---
+
+## Checklist
+
+- [x] `tests/toy_models/__init__.py` created
+- [x] `build_transpose_model.py` generates all 4 dirty models without errors
+- [x] All 4 `.onnx` toy files pass `onnx.checker.check_model()`
+- [x] `eliminate_redundant_transposes.py` implemented
+- [x] `passes/__init__.py` updated
+- [x] `optimizer.py` updated with pass registered
+- [x] `test_cancelling_pair` → 2 nodes become 0 ✓
+- [x] `test_mergeable_chain` → 2 nodes become 1, correct composed perm asserted ✓
+- [x] `test_clean_model` → 1 node stays 1 (untouched) ✓
+- [x] `test_triple_chain` → 3 nodes become 1 ✓
+- [x] All tests pass with max_diff < 1e-5
+- [x] Full optimizer run on MobileNetV2 still clean
+
+---
+
+## Files Created/Updated
+
+```
+onnxslim/
+├── passes/
+│   ├── __init__.py                         ✅ Updated — exports 5 passes
+│   └── eliminate_redundant_transposes.py   ✅ Created — collapses Transpose pairs
+├── verify.py                               ✅ Fixed — handles different output names
+├── optimizer.py                            ✅ Updated — registers all 5 passes
+└── tests/
+    ├── toy_models/
+    │   ├── __init__.py                     ✅ Created
+    │   ├── build_transpose_model.py        ✅ Created — generates 4 test models
+    │   ├── transpose_cancelling.onnx       ✅ Generated — 2→0 nodes
+    │   ├── transpose_mergeable.onnx        ✅ Generated — 2→1 nodes
+    │   ├── transpose_clean.onnx            ✅ Generated — 1→1 nodes (untouched)
+    │   └── transpose_triple.onnx           ✅ Generated — 3→1 nodes
+    └── test_transposes.py                  ✅ Created — precise assertions
+```
+
+---
+
+## Test Results
+
+### Toy Model Tests
+```
+Running M4 tests...
+
+  ✓ cancelling_pair:  2 → 0 nodes | max_diff=0.00e+00
+  ✓ mergeable_chain:  2 → 1 node | perm=[0, 2, 3, 1] | max_diff=0.00e+00
+  ✓ clean_model:      1 → 1 node (untouched) | max_diff=0.00e+00
+  ✓ triple_chain:     3 → 1 node | max_diff=0.00e+00
+  ✓ mobilenetv2:      105 → 105 nodes | max_diff=0.00e+00
+
+✅ All M4 tests passed.
+```
+
+### Full Optimizer (5 Passes)
+```
+Loading: mobilenetv2-12.onnx
+  Running pass: eliminate_dead_nodes ... ✓
+  Running pass: eliminate_identity_ops ... ✓
+  Running pass: eliminate_unused_initializers ... ✓
+  Running pass: eliminate_duplicate_constants ... → removed 68 duplicate constant(s) ✓
+  Running pass: eliminate_redundant_transposes ... ✓
+
+Model: mobilenetv2-12.onnx
+─────────────────────────────────────────
+Nodes before:      105
+Nodes after:       105 (-0.0%)
+Size before:       13.32 MB
+Size after:        13.32 MB (-0.0%)
+Passes applied:    eliminate_dead_nodes, eliminate_identity_ops,
+                   eliminate_unused_initializers, eliminate_duplicate_constants,
+                   eliminate_redundant_transposes
+Time:              0.65s
+```
+
+---
+
+## New Testing Philosophy
+
+From M4 onwards, every pass gets synthetic "dirty" ONNX models that:
+- Have exactly the pathological pattern the pass targets
+- Are small enough to inspect node-by-node
+- Allow precise assertions (e.g., "nodes went from 4 to 2")
+- Live in `tests/toy_models/`
+
+This ensures we never wonder "did the pass actually fire?" — the toy model guarantees it.
+
+---
+
+## Pass Algorithm
+
+### eliminate_redundant_transposes
+
+1. Build map: `input_name → list of consumer nodes`
+2. Scan for Transpose nodes whose output feeds exactly one other Transpose
+3. Compose their permutations: `composed[i] = p1[p2[i]]`
+4. If composed == identity `[0,1,2,3]` → remove both, rewire input→output
+5. If composed != identity → replace both with single Transpose using composed perm
+6. Repeat until no more consecutive pairs (handles chains)
+
+### Key Bug Fixed
+
+The original code looked up "next node" using `output_to_node[out]` which finds the node
+that PRODUCES that output, not the node that CONSUMES it. Fixed by building a separate
+`input_to_consumers` map.
+
+### verify.py Fix
+
+Updated to get output names separately for original and optimized models, since
+graph outputs can be rewired (e.g., 'Y' → 'X' when both Transposes are removed).
+
+---
+
+## Notes
+
+1. **MobileNetV2 shows 0 transposes eliminated**: This is expected — MobileNetV2 
+   doesn't have redundant transpose pairs. The pass will show impact on models 
+   exported with NCHW↔NHWC conversions (e.g., PyTorch→TFLite workflows).
+
+2. **While loop for chains**: The pass runs `_run_one_pass` repeatedly until no 
+   changes occur. A single scan only collapses one pair at a time.
+
+3. **Graph output protection**: Won't collapse if intermediate output is a graph output.
+
+---
+
+## Next Steps → M5
+
+Ready to proceed to `micro_plan_M5.md`:
+- Implement `fold_constants` pass
+- Most impactful single pass in the pipeline
+- Pre-computes any subgraph where all inputs are constants
+- Shape ops, positional encodings, mask computations all collapse

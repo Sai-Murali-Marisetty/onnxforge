@@ -1,0 +1,142 @@
+# M6 — Simplify Shape Chains
+# Progress Tracker
+# ================================================
+
+## Status: ✅ COMPLETE
+
+## Date: February 18, 2026
+
+---
+
+## Checklist
+
+- [x] `build_shape_chain_model.py` generates all 3 toy models without errors
+- [x] All 3 `.onnx` toy files pass `onnx.checker.check_model()`
+- [x] `simplify_shape_chains.py` implemented
+- [x] `passes/__init__.py` updated
+- [x] `optimizer.py` updated with pass registered after fold_constants
+- [x] `test_identity_reshape` → Reshape removed, accuracy verified ✓
+- [x] `test_real_reshape` → Reshape survives ✓
+- [x] `test_dead_shape_node` → 2 nodes become 1, Shape removed, Relu survives ✓
+- [x] MobileNetV2 still clean
+
+---
+
+## Files Created/Updated
+
+```
+onnxslim/
+├── passes/
+│   ├── __init__.py                         ✅ Updated — exports 7 passes
+│   └── simplify_shape_chains.py            ✅ Created — cleans up shape ops
+├── optimizer.py                            ✅ Updated — registers all 7 passes
+└── tests/
+    ├── toy_models/
+    │   ├── build_shape_chain_model.py      ✅ Created — generates 3 test models
+    │   ├── shape_identity_reshape.onnx     ✅ Generated — identity Reshape removed
+    │   ├── shape_real_reshape.onnx         ✅ Generated — real Reshape survives
+    │   └── shape_dead_shape.onnx           ✅ Generated — dead Shape removed
+    └── test_shape_chains.py                ✅ Created — precise assertions
+```
+
+---
+
+## Test Results
+
+### Toy Model Tests
+```
+Running M6 tests...
+
+  ✓ identity_reshape:  Reshape removed | max_diff=0.00e+00
+  ✓ real_reshape:      Reshape survived | max_diff=0.00e+00
+  ✓ dead_shape_node:   2 → 1 node | Shape removed, Relu survived
+  ✓ mobilenetv2:       105 → 105 nodes | max_diff=0.00e+00
+
+✅ All M6 tests passed.
+```
+
+### Full Optimizer (7 Passes)
+```
+Loading: mobilenetv2-12.onnx
+  Running pass: eliminate_dead_nodes ... ✓
+  Running pass: eliminate_identity_ops ... ✓
+  Running pass: eliminate_unused_initializers ... ✓
+  Running pass: eliminate_duplicate_constants ... → removed 68 duplicate constant(s) ✓
+  Running pass: eliminate_redundant_transposes ... ✓
+  Running pass: fold_constants ... ✓
+  Running pass: simplify_shape_chains ... ✓
+
+Model: mobilenetv2-12.onnx
+─────────────────────────────────────────
+Nodes before:      105
+Nodes after:       105 (-0.0%)
+Size before:       13.32 MB
+Size after:        13.32 MB (+0.0%)
+Passes applied:    eliminate_dead_nodes, eliminate_identity_ops,
+                   eliminate_unused_initializers, eliminate_duplicate_constants,
+                   eliminate_redundant_transposes, fold_constants,
+                   simplify_shape_chains
+Time:              1.11s
+```
+
+---
+
+## Pass Algorithm
+
+### simplify_shape_chains
+
+Two patterns targeted:
+
+1. **Identity Reshape**: If Reshape input shape == target shape exactly, remove it
+   - Rewire consumers to use the input directly
+   - Handles graph outputs by rewiring them too
+
+2. **Dead Shape nodes**: Shape ops whose output is never consumed
+   - These become dead after fold_constants eliminates their consumers
+   - Simply remove them
+
+### Key Implementation Details
+
+- Runs `onnx.shape_inference.infer_shapes()` first to populate value_info
+- Checks static shapes via `graph.input` and `graph.value_info`
+- Gets constant values from both initializers and Constant nodes
+- Properly handles rewiring when Reshape output is a graph output
+
+---
+
+## Notes
+
+1. **MobileNetV2 shows 0 shape ops simplified**: This is expected — MobileNetV2 
+   doesn't have redundant Reshape ops. The pass will show impact on Transformer 
+   models (BERT, Whisper) which have many shape manipulation chains.
+
+2. **Pass order is critical**: SimplifyShapeChains MUST run after FoldConstants.
+   Shape chains only become simplifiable BECAUSE constant folding already turned
+   dynamic shape computations into static constants.
+
+3. **BERT testing**: BERT model testing is deferred (requires transformers + torch
+   to export). The pass is ready for it.
+
+---
+
+## Current Pass Pipeline (7 passes)
+
+```
+1. eliminate_dead_nodes          — remove unreachable nodes
+2. eliminate_identity_ops        — remove Identity pass-throughs  
+3. eliminate_unused_initializers — remove dead weight tensors
+4. eliminate_duplicate_constants — deduplicate identical constants
+5. eliminate_redundant_transposes— collapse Transpose pairs
+6. fold_constants                — pre-compute constant subgraphs
+7. simplify_shape_chains         — clean up shape ops after folding
+```
+
+---
+
+## Next Steps → M7
+
+Ready to proceed to `micro_plan_M7.md`:
+- Implement `fuse_conv_batchnorm` pass
+- First fusion pass (Tier 3)
+- BatchNorm parameters folded into Conv weights mathematically
+- Real node count AND size reduction

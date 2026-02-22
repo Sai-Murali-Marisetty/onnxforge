@@ -1,0 +1,141 @@
+# Micro-plan M7 Progress — fuse_conv_batchnorm
+
+## Milestone Goal
+First fusion pass: fold BatchNormalization into preceding Conv node.
+Mathematical fusion of BN params into Conv weights — reduces node count AND improves inference speed.
+
+## Status: ✅ COMPLETE
+
+---
+
+## Files Created
+
+### 1. passes/fuse_conv_batchnorm.py
+- Core fusion math:
+  - scale = gamma / sqrt(var + eps)
+  - new_weight = W * scale (broadcast to match tensor rank)
+  - new_bias = (b - mean) * scale + beta
+- Handles Conv with or without existing bias
+- Two-pass approach: identify all Conv+BN pairs first, then fuse in batch
+- Properly rewires Conv output → BN output name (skip BN entirely)
+- Removes all fused BN nodes at once
+
+### 2. tests/toy_models/build_conv_bn_model.py
+Three toy models:
+- `conv_bn_pair.onnx`: Single Conv+BN → 2 nodes → 1
+- `conv_no_bn.onnx`: Conv only → pass does nothing (1 node)
+- `conv_bn_double.onnx`: Two sequential Conv+BN → 4 nodes → 2
+
+### 3. tests/test_conv_batchnorm.py
+- Test with **weight value assertions** (not just node counts)
+- Verifies fused weights are mathematically correct using known BN params
+- Uses verify.py for accuracy check via ONNX Runtime
+- Tests MobileNetV2 (which has 0 BN nodes — already fused in model zoo)
+
+---
+
+## Test Results
+
+```
+Running M7 tests...
+
+    → fused 1 Conv+BN pair(s)
+  ✓ conv_bn_pair:      2 → 1 node | weights verified | max_diff=0.00e+00
+  ✓ conv_no_bn:        1 → 1 node (untouched) | max_diff=0.00e+00
+    → fused 2 Conv+BN pair(s)
+  ✓ two_conv_bn_pairs: 4 → 2 nodes | both BNs fused | max_diff=0.00e+00
+  ✓ mobilenetv2:       105 → 105 nodes | BN: 0 → 0 | max_diff=0.00e+00
+
+✅ All M7 tests passed.
+```
+
+---
+
+## Full Optimizer Smoke Test
+
+```
+Loading: mobilenetv2-12.onnx
+  Running pass: eliminate_dead_nodes ... ✓
+  Running pass: eliminate_identity_ops ... ✓
+  Running pass: eliminate_unused_initializers ... ✓
+  Running pass: eliminate_duplicate_constants ...     → removed 68 duplicate constant(s)
+  Running pass: eliminate_redundant_transposes ... ✓
+  Running pass: fold_constants ... ✓
+  Running pass: simplify_shape_chains ... ✓
+  Running pass: fuse_conv_batchnorm ... ✓
+
+Model: mobilenetv2-12.onnx
+─────────────────────────────────────────
+Nodes before:      105
+Nodes after:       105 (-0.0%)
+Size before:       13.32 MB
+Size after:        13.32 MB (+0.0%)
+Passes applied:    8 passes
+Time:              1.21s
+```
+
+MobileNetV2 has **0 BatchNormalization nodes** (pre-fused in ONNX Model Zoo export), so no additional reduction from this pass. The toy model tests verify correctness.
+
+---
+
+## Bug Fixed
+
+**Issue:** Graph became topologically invalid when processing sequential Conv+BN pairs.
+
+When Conv1→BN1→Conv2→BN2:
+- First fusion rewired Conv1.output to "bn1_out" (skipping BN1)
+- But BN1 was still in the graph with input "c1" (now orphaned)
+- onnx.checker.check_model() failed: "input 'c1' is not output of any previous nodes"
+
+**Fix:** Two-pass approach:
+1. First pass: identify all Conv+BN fusion pairs
+2. Second pass: apply all fusions at once
+3. Remove all fused BN nodes in a single batch
+
+---
+
+## Pass Pipeline (8 passes)
+
+1. eliminate_dead_nodes
+2. eliminate_identity_ops
+3. eliminate_unused_initializers
+4. eliminate_duplicate_constants (→ removed 68 in MobileNetV2)
+5. eliminate_redundant_transposes
+6. fold_constants
+7. simplify_shape_chains
+8. fuse_conv_batchnorm ← **NEW in M7**
+
+---
+
+## Files Updated
+- `passes/__init__.py` — added FuseConvBatchnorm export
+- `optimizer.py` — registered as 8th pass
+
+---
+
+## Key Implementation Notes
+
+### BN Fusion Math
+```python
+scale = gamma / sqrt(var + eps)           # per-channel scale
+scale_broadcast = scale.reshape((-1, 1, 1, 1))  # for 4D weights
+new_weight = W * scale_broadcast
+new_bias = (b - mean) * scale + beta
+```
+
+### Handles different weight tensor shapes
+- 4D: Conv2D weights [out, in, kH, kW]
+- 3D: Conv1D weights [out, in, kW]
+- 2D: Gemm/MatMul [out, in]
+
+### Graph rewiring
+- Conv.output[0] = BN.output[0] (skip BN entirely)
+- Remove BN node from graph
+- Add bias input to Conv if it didn't have one
+
+---
+
+## Next Milestone: M8
+- Implement fuse_pad_into_conv (fold Pad into Conv padding attributes)
+- Build toy models with Pad→Conv patterns
+- MobileNetV2 may have such patterns to optimize

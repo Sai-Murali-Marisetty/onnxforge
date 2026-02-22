@@ -1,0 +1,175 @@
+# Micro-plan M8 Progress — Fuse Conv+ReLU and MatMul+Add
+
+## Milestone Goal
+Two more fusion passes completing Tier 3:
+1. FuseConvRelu — Pattern detection for Conv+Relu (TFLite-specific)
+2. FuseMatmulAdd — Fuse MatMul+Add → Gemm (real node reduction)
+
+---
+
+## Status: ✅ COMPLETE
+
+---
+
+## Files Created
+
+### 1. passes/fuse_conv_relu.py
+- **Pattern detector** for Conv+Relu pairs
+- Does NOT actually fuse (ONNX/ORT don't support custom 'activation' attribute)
+- Logs number of fusable patterns found
+- Value: Identifies TFLite optimization opportunities
+
+### 2. passes/fuse_matmul_add.py
+- **Real fusion**: MatMul + Add → Gemm
+- Gemm: Y = alpha * A * B + beta * C (with alpha=1, beta=1)
+- Two-pass approach for topological correctness
+- Replaces MatMul at same position, removes Add
+- Common in Transformer models (BERT attention projections)
+
+### 3. tests/toy_models/build_conv_relu_model.py
+Three toy models:
+- `conv_relu.onnx`: Conv→Relu (2 nodes)
+- `conv_no_relu.onnx`: Conv only (1 node)
+- `conv_relu_conv.onnx`: Conv→Relu→Conv (3 nodes)
+
+### 4. tests/toy_models/build_matmul_add_model.py
+Three toy models:
+- `matmul_add.onnx`: MatMul+Add → 2 nodes → 1 Gemm
+- `matmul_no_add.onnx`: MatMul only (1 node)
+- `matmul_add_double.onnx`: Two linear layers → 4 nodes → 2 Gemm
+
+### 5. tests/test_conv_relu.py
+- Tests pattern detection (not node reduction)
+- Verifies model unchanged for ORT compatibility
+
+### 6. tests/test_matmul_add.py
+- Tests actual fusion: MatMul+Add → Gemm
+- Verifies node reduction and accuracy
+
+---
+
+## Test Results
+
+### Conv+ReLU Tests (Pattern Detection Mode)
+```
+Running Conv+ReLU tests (pattern detection mode)...
+
+    → found 1 Conv+ReLU pair(s) (pattern detected, not fused for ORT compatibility)
+  ✓ conv_relu:         2 nodes (pattern detected) | max_diff=0.00e+00
+  ✓ conv_no_relu:      1 node (no pattern) | max_diff=0.00e+00
+    → found 1 Conv+ReLU pair(s) (pattern detected, not fused for ORT compatibility)
+  ✓ conv_relu_conv:    3 nodes (pattern detected) | max_diff=0.00e+00
+  ✓ mobilenetv2:       105 nodes | Relu: 0 | max_diff=0.00e+00
+
+✅ All Conv+ReLU tests passed.
+```
+
+### MatMul+Add Tests (Real Fusion)
+```
+Running MatMul+Add tests...
+
+    → fused 1 MatMul+Add → Gemm
+  ✓ matmul_add:        2 → 1 Gemm | max_diff=0.00e+00
+  ✓ matmul_no_add:     1 → 1 node (untouched) | max_diff=0.00e+00
+    → fused 2 MatMul+Add → Gemm
+  ✓ two_linear_layers: 4 → 2 Gemm | all MatMul+Add fused | max_diff=0.00e+00
+  ✓ mobilenetv2:       105 → 105 nodes | Gemm: 1 | max_diff=0.00e+00
+
+✅ All MatMul+Add tests passed.
+```
+
+---
+
+## Full Optimizer Smoke Test (10 Passes)
+
+```
+Loading: mobilenetv2-12.onnx
+  Running pass: eliminate_dead_nodes ... ✓
+  Running pass: eliminate_identity_ops ... ✓
+  Running pass: eliminate_unused_initializers ... ✓
+  Running pass: eliminate_duplicate_constants ...     → removed 68 duplicate constant(s)
+  Running pass: eliminate_redundant_transposes ... ✓
+  Running pass: fold_constants ... ✓
+  Running pass: simplify_shape_chains ... ✓
+  Running pass: fuse_conv_batchnorm ... ✓
+  Running pass: fuse_conv_relu ... ✓
+  Running pass: fuse_matmul_add ... ✓
+
+Model: mobilenetv2-12.onnx
+─────────────────────────────────────────
+Nodes before:      105
+Nodes after:       105 (-0.0%)
+Size before:       13.32 MB
+Size after:        13.32 MB (+0.0%)
+Passes applied:    10 passes
+Time:              1.09s
+```
+
+MobileNetV2 notes:
+- Has 0 Relu nodes (uses Clip instead for ReLU6)
+- Has 1 Gemm node already
+- No MatMul+Add patterns to fuse
+- The passes work correctly, just no patterns to optimize
+
+---
+
+## Key Implementation Notes
+
+### FuseConvRelu — Pattern Detection Only
+The micro-plan intended to add a custom `activation='Relu'` attribute to Conv nodes.
+However, **ONNX and ONNX Runtime reject unknown attributes**, making this approach
+incompatible with standard tooling.
+
+The pass is modified to be a **pattern detector** that:
+1. Identifies Conv+Relu pairs suitable for fusion
+2. Logs the count for visibility
+3. Leaves the graph unchanged for ORT compatibility
+
+For TFLite export, downstream converters can use this pattern information.
+
+### FuseMatmulAdd — Real Fusion
+This pass provides **real node reduction**:
+- MatMul + Add → Gemm (Y = alpha * A @ B + beta * C)
+- Common in Transformer models (every linear layer)
+- MobileNetV2 doesn't have this pattern, but BERT models will
+
+**Bug Fixed:** Topological ordering issue with sequential layers.
+When two MatMul+Add pairs are sequential, the Gemm nodes must be
+inserted at the correct positions. Fixed by replacing MatMul in-place
+instead of appending Gemm at the end.
+
+---
+
+## Pass Pipeline (10 passes)
+
+1. eliminate_dead_nodes
+2. eliminate_identity_ops
+3. eliminate_unused_initializers
+4. eliminate_duplicate_constants (→ removed 68 in MobileNetV2)
+5. eliminate_redundant_transposes
+6. fold_constants
+7. simplify_shape_chains
+8. fuse_conv_batchnorm
+9. fuse_conv_relu (pattern detection)
+10. fuse_matmul_add → **NEW** (real fusion)
+
+---
+
+## Files Updated
+- `passes/__init__.py` — added FuseConvRelu, FuseMatmulAdd exports
+- `optimizer.py` — registered as passes 9 and 10
+
+---
+
+## Known Limitations
+
+1. **FuseConvRelu**: Pattern detection only, no actual fusion for ORT
+2. **MobileNetV2**: Uses Clip(0,6) for ReLU6, not Relu nodes
+3. **MobileNetV2**: Already optimized — no MatMul+Add patterns
+
+---
+
+## Next Milestone: M9
+- Test on BERT or Whisper model (Transformer architecture)
+- These will show real benefits from MatMul+Add → Gemm fusion
+- Expect significant node count reduction

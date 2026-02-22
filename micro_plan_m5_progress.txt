@@ -1,0 +1,138 @@
+# M5 — Fold Constants
+# Progress Tracker
+# ================================================
+
+## Status: ✅ COMPLETE
+
+## Date: February 18, 2026
+
+---
+
+## Checklist
+
+- [x] `build_constants_model.py` generates all 4 toy models without errors
+- [x] All 4 `.onnx` toy files pass `onnx.checker.check_model()`
+- [x] `fold_constants.py` implemented
+- [x] `passes/__init__.py` updated
+- [x] `optimizer.py` updated with pass registered
+- [x] `test_simple_add` → 3 nodes become 1, value asserted as `[2.0, 4.0, 6.0]` ✓
+- [x] `test_chain_fold` → 5 nodes become 1, value asserted as `[[0.0, 2.0, 4.0, 6.0]]` ✓
+- [x] `test_mixed_model` → Add node survives, accuracy verified ✓
+- [x] `test_no_fold` → 1 node stays 1 (untouched) ✓
+- [x] Full optimizer run on MobileNetV2 stays clean
+
+---
+
+## Files Created/Updated
+
+```
+onnxslim/
+├── passes/
+│   ├── __init__.py                         ✅ Updated — exports 6 passes
+│   └── fold_constants.py                   ✅ Created — pre-computes constant subgraphs
+├── optimizer.py                            ✅ Updated — registers all 6 passes
+└── tests/
+    ├── toy_models/
+    │   ├── build_constants_model.py        ✅ Created — generates 4 test models
+    │   ├── constants_add.onnx              ✅ Generated — 3→1 nodes
+    │   ├── constants_chain.onnx            ✅ Generated — 5→1 nodes
+    │   ├── constants_mixed.onnx            ✅ Generated — Add survives
+    │   └── constants_no_fold.onnx          ✅ Generated — untouched
+    └── test_fold_constants.py              ✅ Created — precise value assertions
+```
+
+---
+
+## Test Results
+
+### Toy Model Tests
+```
+Running M5 tests...
+
+  ✓ simple_add:    3 → 1 node | value=[2.0, 4.0, 6.0] ✓
+  ✓ chain_fold:    5 → 1 node | value=[[0.0, 2.0, 4.0, 6.0]] ✓
+  ✓ mixed_model:   Add survived | max_diff=0.00e+00
+  ✓ no_fold:       1 → 1 node (untouched)
+  ✓ mobilenetv2:   105 → 105 nodes | max_diff=0.00e+00
+
+✅ All M5 tests passed.
+```
+
+### Full Optimizer (6 Passes)
+```
+Loading: mobilenetv2-12.onnx
+  Running pass: eliminate_dead_nodes ... ✓
+  Running pass: eliminate_identity_ops ... ✓
+  Running pass: eliminate_unused_initializers ... ✓
+  Running pass: eliminate_duplicate_constants ... → removed 68 duplicate constant(s) ✓
+  Running pass: eliminate_redundant_transposes ... ✓
+  Running pass: fold_constants ... ✓
+
+Model: mobilenetv2-12.onnx
+─────────────────────────────────────────
+Nodes before:      105
+Nodes after:       105 (-0.0%)
+Size before:       13.32 MB
+Size after:        13.32 MB (-0.0%)
+Passes applied:    eliminate_dead_nodes, eliminate_identity_ops,
+                   eliminate_unused_initializers, eliminate_duplicate_constants,
+                   eliminate_redundant_transposes, fold_constants
+Time:              0.97s
+```
+
+---
+
+## Pass Algorithm
+
+### fold_constants
+
+1. **Collect known constants**: All initializers + Constant node outputs
+2. **Propagate forward**: Node is foldable if ALL non-empty inputs are constants
+3. **Identify needed outputs**: Foldable outputs consumed by non-foldable nodes or graph outputs
+4. **Build mini model**: Extract foldable subgraph into standalone ONNX model
+5. **Execute with ORT**: Run mini model to get pre-computed values
+6. **Replace nodes**: Remove foldable nodes, add new Constant nodes with computed values
+
+### Key Features
+
+- **Value assertions in tests**: Not just "it ran" but exact output values verified
+- **Graceful failure**: If folding fails, pass skips rather than corrupting model
+- **Shape inference**: Uses `onnx.shape_inference` for proper type handling
+
+---
+
+## Notes
+
+1. **MobileNetV2 shows 0 nodes folded**: This is expected — MobileNetV2 doesn't have 
+   constant subgraphs beyond what's already baked in. The pass will show major 
+   impact on HuggingFace Transformer exports (BERT, Whisper) which have many 
+   constant shape/mask computations.
+
+2. **Value assertions are key**: Tests verify actual computed values like `[2.0, 4.0, 6.0]`,
+   not just node counts. This catches subtle bugs in the folding logic.
+
+3. **Mixed model test**: Crucial test that runtime ops (Add with runtime input) survive
+   while only pure-constant branches are folded.
+
+---
+
+## Current Pass Pipeline (6 passes)
+
+```
+1. eliminate_dead_nodes          — remove unreachable nodes
+2. eliminate_identity_ops        — remove Identity pass-throughs  
+3. eliminate_unused_initializers — remove dead weight tensors
+4. eliminate_duplicate_constants — deduplicate identical constants
+5. eliminate_redundant_transposes— collapse Transpose pairs
+6. fold_constants                — pre-compute constant subgraphs
+```
+
+---
+
+## Next Steps → M6
+
+Ready to proceed to `micro_plan_M6.md`:
+- Implement `simplify_shape_chains` pass
+- Clean up shape manipulation ops after constant folding
+- Shape → Gather → Unsqueeze → Concat → Reshape chains collapse
+- First time testing on BERT-base
