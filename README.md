@@ -1,4 +1,4 @@
-# onnxslim
+# onnxforge
 
 A pass-based ONNX graph optimizer designed for production deployment. Cleans, simplifies, and restructures ONNX models before conversion to TFLite or CoreML with **zero accuracy loss** and **verifiable correctness**.
 
@@ -48,8 +48,8 @@ Tested on ONNX Runtime 1.19.2 (CPU), 50 inference runs, median latency.
 ### Setup
 
 ```bash
-git clone https://github.com/yourname/onnxslim.git
-cd onnxslim
+git clone https://github.com/Sai-Murali-Marisetty/onnxforge.git
+cd onnxforge
 
 # Create virtual environment
 python -m venv venv
@@ -200,7 +200,7 @@ class YourPass(BasePass):
 
 ---
 
-## Why onnxslim?
+## Why onnxforge?
 
 Existing tools like `onnxoptimizer` and `onnxsim` are:
 - Generic and largely unmaintained
@@ -208,7 +208,7 @@ Existing tools like `onnxoptimizer` and `onnxsim` are:
 - Poor at handling Transformer model exports
 - Missing built-in accuracy verification
 
-onnxslim addresses all of these with a modular, testable, and extensible design.
+onnxforge addresses all of these with a modular, testable, and extensible design.
 
 ---
 
