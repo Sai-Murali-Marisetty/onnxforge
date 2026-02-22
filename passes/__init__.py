@@ -8,6 +8,7 @@ from .simplify_shape_chains import SimplifyShapeChains
 from .fuse_conv_batchnorm import FuseConvBatchnorm
 from .fuse_conv_relu import FuseConvRelu
 from .fuse_matmul_add import FuseMatmulAdd
+from .fuse_matmul_add_3d import FuseMatmulAdd3d
 from .cleanup_attention import CleanupAttention
 
 __all__ = [
@@ -21,5 +22,6 @@ __all__ = [
     "FuseConvBatchnorm",
     "FuseConvRelu",
     "FuseMatmulAdd",
+    "FuseMatmulAdd3d",
     "CleanupAttention",
 ]

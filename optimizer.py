@@ -93,6 +93,7 @@ if __name__ == "__main__":
         FuseConvBatchnorm,
         FuseConvRelu,
         FuseMatmulAdd,
+        FuseMatmulAdd3d,
         CleanupAttention,
     )
 
@@ -100,7 +101,7 @@ if __name__ == "__main__":
         print("Usage: python optimizer.py input.onnx output.onnx")
         sys.exit(1)
 
-    # M9: eleven passes now (CleanupAttention added)
+    # M11: twelve passes now (FuseMatmulAdd3d added for transformers)
     registered_passes = [
         EliminateDeadNodes(),
         EliminateIdentityOps(),
@@ -112,6 +113,7 @@ if __name__ == "__main__":
         FuseConvBatchnorm(),
         FuseConvRelu(),
         FuseMatmulAdd(),
+        FuseMatmulAdd3d(),
         CleanupAttention(),
     ]
 

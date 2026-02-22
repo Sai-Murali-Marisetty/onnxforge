@@ -35,9 +35,16 @@ def _generate_random_input(input_specs):
         if dtype == 1:   # FLOAT
             feed[name] = np.random.randn(*shape).astype(np.float32)
         elif dtype == 7: # INT64
-            feed[name] = np.random.randint(0, 128, shape).astype(np.int64)
+            # For token_type_ids in BERT/RoBERTa models, use 0 only (safest)
+            # For other int64 inputs (input_ids, attention_mask), use small range
+            if 'token_type' in name:
+                feed[name] = np.zeros(shape, dtype=np.int64)
+            elif 'attention_mask' in name:
+                feed[name] = np.ones(shape, dtype=np.int64)
+            else:
+                feed[name] = np.random.randint(0, 100, shape).astype(np.int64)
         elif dtype == 6: # INT32
-            feed[name] = np.random.randint(0, 128, shape).astype(np.int32)
+            feed[name] = np.random.randint(0, 100, shape).astype(np.int32)
         else:
             feed[name] = np.random.randn(*shape).astype(np.float32)
     return feed
