@@ -83,8 +83,8 @@ HARD GATES STATUS
 [✓] Latency measured on 11 models - avg +2.2% speedup
 [✓] Attribution matrix complete (tools/attribution_matrix.py)
 [✓] Accuracy taxonomy draft written (docs/accuracy_taxonomy.md)
-[ ] Node/latency correlation measured (data collected)
-[ ] Architecture fingerprint prototype
+[✓] Node/latency correlation measured (Exp 21) - r=0.08, WEAK correlation!
+[✓] Architecture fingerprint prototype (Exp 22) - 80% accuracy
 
 ================================================================================
 12-PASS PIPELINE (M11)
@@ -170,3 +170,10 @@ LOG
 [2026-02-21] Attribution matrix (Exp 19): identifies pass-model contributions
 [2026-02-21] Accuracy taxonomy written (docs/accuracy_taxonomy.md)
 [2026-02-21] All 41 tests passing
+[2026-02-21] Exp 21 - Node/Latency Correlation: r=0.08 (WEAK!)
+             Major finding: Node reduction is a POOR PROXY for latency improvement
+             RoBERTa: 5% nodes → 11.8% faster (2.4x efficiency)
+             DeiT: 13.5% nodes → -0.4% slower (negative efficiency)
+[2026-02-21] Exp 22 - Architecture Fingerprint: 80% classification accuracy
+             Successfully classifies vision-cnn vs transformer
+             Key: Detect decomposed LayerNorm via ReduceMean/Sqrt patterns
