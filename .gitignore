@@ -213,3 +213,4 @@ venv/
 # ONNX model files (large binaries - use export scripts to regenerate)
 *.onnx
 models/
+yolov8n.pt
